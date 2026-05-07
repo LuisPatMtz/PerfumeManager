@@ -1,0 +1,480 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Auth ─────────────────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("users")
+}
+
+// ─── Suppliers ────────────────────────────────────────────────────────────────
+
+model Supplier {
+  id                  String   @id @default(cuid())
+  name                String
+  instagram           String?
+  whatsapp            String?
+  notes               String?
+  averageDeliveryDays Int?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  batches PerfumeBatch[]
+  bottles Bottle[]
+
+  @@map("suppliers")
+}
+
+// ─── Customers ────────────────────────────────────────────────────────────────
+
+model Customer {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String?
+  instagram String?
+  notes     String?
+  isVip     Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sales   Sale[]
+  credits Credit[]
+
+  @@map("customers")
+}
+
+// ─── Perfumes ─────────────────────────────────────────────────────────────────
+
+enum PerfumeStatus {
+  active
+  archived
+  out_of_stock
+}
+
+enum Concentration {
+  EDP
+  EDT
+  EXP
+  EDC
+  PC
+}
+
+model Perfume {
+  id            String        @id @default(cuid())
+  name          String
+  brand         String
+  category      String?
+  description   String?
+  concentration Concentration?
+  status        PerfumeStatus @default(active)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  batches    PerfumeBatch[]
+  bottles    Bottle[]
+  prices     PerfumePrice[]
+  movements  PerfumeMovement[]
+  saleItems  SaleItem[]
+
+  @@map("perfumes")
+}
+
+// ─── Batches ──────────────────────────────────────────────────────────────────
+
+model PerfumeBatch {
+  id            String   @id @default(cuid())
+  perfumeId     String
+  batchCode     String   @unique
+  purchasePrice Int      // centavos
+  purchaseDate  DateTime
+  supplierId    String?
+  notes         String?
+  createdAt     DateTime @default(now())
+
+  perfume  Perfume   @relation(fields: [perfumeId], references: [id])
+  supplier Supplier? @relation(fields: [supplierId], references: [id])
+  bottles  Bottle[]
+
+  @@map("perfume_batches")
+}
+
+// ─── Prices ───────────────────────────────────────────────────────────────────
+
+model PerfumePrice {
+  id           String   @id @default(cuid())
+  perfumeId    String
+  ml           Int
+  price        Int      // centavos
+  isFullBottle Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  perfume  Perfume        @relation(fields: [perfumeId], references: [id])
+  history  PriceHistory[]
+
+  @@unique([perfumeId, ml])
+  @@map("perfume_prices")
+}
+
+model PriceHistory {
+  id        String   @id @default(cuid())
+  priceId   String
+  oldPrice  Int
+  newPrice  Int
+  changedAt DateTime @default(now())
+  notes     String?
+
+  price PerfumePrice @relation(fields: [priceId], references: [id])
+
+  @@map("price_history")
+}
+
+// ─── Bottles ──────────────────────────────────────────────────────────────────
+
+enum BottleStatus {
+  open
+  low_stock
+  empty
+  archived
+  damaged
+}
+
+model Bottle {
+  id                     String       @id @default(cuid())
+  perfumeId              String
+  batchId                String?
+  supplierId             String?
+  purchasePrice          Int          // centavos
+  initialMl              Int
+  calculatedRemainingMl  Int
+  realRemainingMl        Int
+  status                 BottleStatus @default(open)
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
+
+  perfume    Perfume       @relation(fields: [perfumeId], references: [id])
+  batch      PerfumeBatch? @relation(fields: [batchId], references: [id])
+  supplier   Supplier?     @relation(fields: [supplierId], references: [id])
+  movements  PerfumeMovement[]
+  saleItems  SaleItem[]
+  adjustments InventoryAdjustment[]
+
+  @@index([status])
+  @@map("bottles")
+}
+
+// ─── Movements ────────────────────────────────────────────────────────────────
+
+enum MovementType {
+  sale
+  gift
+  sample
+  loss
+  adjustment
+  purchase
+}
+
+model PerfumeMovement {
+  id        String       @id @default(cuid())
+  bottleId  String
+  perfumeId String
+  type      MovementType
+  ml        Int
+  reason    String?
+  notes     String?
+  saleItemId String?     @unique
+  createdAt DateTime     @default(now())
+
+  bottle   Bottle   @relation(fields: [bottleId], references: [id])
+  perfume  Perfume  @relation(fields: [perfumeId], references: [id])
+
+  @@index([type, createdAt])
+  @@index([perfumeId, createdAt])
+  @@map("perfume_movements")
+}
+
+// ─── Sales ────────────────────────────────────────────────────────────────────
+
+enum PaymentMethod {
+  cash
+  transfer
+  card
+  credit
+}
+
+enum SaleStatus {
+  paid
+  credit
+  partial
+}
+
+model Sale {
+  id            String        @id @default(cuid())
+  customerId    String?
+  total         Int           // centavos
+  paid          Int           // centavos
+  status        SaleStatus    @default(paid)
+  paymentMethod PaymentMethod @default(cash)
+  notes         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  customer Customer?  @relation(fields: [customerId], references: [id])
+  items    SaleItem[]
+  credit   Credit?
+
+  @@index([createdAt])
+  @@map("sales")
+}
+
+model SaleItem {
+  id              String   @id @default(cuid())
+  saleId          String
+  bottleId        String
+  perfumeId       String
+  ml              Int
+  price           Int      // centavos
+  perfumeCost     Int      // centavos - cost of the perfume
+  suppliesCost    Int      // centavos - cost of supplies used
+  estimatedProfit Int      // centavos
+  realProfit      Int      // centavos
+  isGift          Boolean  @default(false)
+  createdAt       DateTime @default(now())
+
+  sale    Sale    @relation(fields: [saleId], references: [id])
+  bottle  Bottle  @relation(fields: [bottleId], references: [id])
+  perfume Perfume @relation(fields: [perfumeId], references: [id])
+
+  @@index([createdAt, isGift])
+  @@index([perfumeId])
+  @@map("sale_items")
+}
+
+// ─── Credits ──────────────────────────────────────────────────────────────────
+
+enum CreditRisk {
+  low
+  medium
+  high
+}
+
+model Credit {
+  id            String      @id @default(cuid())
+  customerId    String
+  saleId        String      @unique
+  total         Int         // centavos
+  paid          Int         @default(0)
+  pending       Int
+  risk          CreditRisk  @default(low)
+  dueDate       DateTime?
+  lastPaymentAt DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  customer Customer       @relation(fields: [customerId], references: [id])
+  sale     Sale           @relation(fields: [saleId], references: [id])
+  payments CreditPayment[]
+
+  @@index([pending, dueDate])
+  @@index([risk, pending])
+  @@map("credits")
+}
+
+model CreditPayment {
+  id       String        @id @default(cuid())
+  creditId String
+  amount   Int           // centavos
+  method   PaymentMethod @default(cash)
+  notes    String?
+  paidAt   DateTime      @default(now())
+
+  credit Credit @relation(fields: [creditId], references: [id])
+
+  @@map("credit_payments")
+}
+
+// ─── Supplies ─────────────────────────────────────────────────────────────────
+
+enum SupplyCategory {
+  bottles
+  bags
+  stickers
+  labels
+  boxes
+  ribbons
+  paper
+  other
+}
+
+model Supply {
+  id          String         @id @default(cuid())
+  name        String
+  category    SupplyCategory
+  stock       Int            @default(0)
+  minStock    Int            @default(0)
+  unit        String         @default("unidad")
+  costPerUnit Int            @default(0) // centavos
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  movements     SupplyMovement[]
+  consumeRules  ProductSupplyRule[]
+
+  @@index([stock, minStock])
+  @@map("supplies")
+}
+
+model SupplyMovement {
+  id        String   @id @default(cuid())
+  supplyId  String
+  delta     Int      // positive = in, negative = out
+  reason    String?
+  saleId    String?
+  createdAt DateTime @default(now())
+
+  supply Supply @relation(fields: [supplyId], references: [id])
+
+  @@map("supply_movements")
+}
+
+model ProductSupplyRule {
+  id        String @id @default(cuid())
+  ml        Int    // applies when selling this ml
+  supplyId  String
+  quantity  Int    @default(1)
+
+  supply Supply @relation(fields: [supplyId], references: [id])
+
+  @@unique([ml, supplyId])
+  @@map("product_supply_rules")
+}
+
+// ─── Inventory Adjustments ────────────────────────────────────────────────────
+
+model InventoryAdjustment {
+  id           String   @id @default(cuid())
+  bottleId     String
+  systemMl     Int
+  realMl       Int
+  difference   Int      // realMl - systemMl
+  reason       String?
+  createdAt    DateTime @default(now())
+
+  bottle Bottle @relation(fields: [bottleId], references: [id])
+
+  @@map("inventory_adjustments")
+}
+
+// ─── Financials ───────────────────────────────────────────────────────────────
+
+model Expense {
+  id          String   @id @default(cuid())
+  category    String
+  amount      Int      // centavos
+  description String
+  date        DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@map("expenses")
+}
+
+model OwnerContribution {
+  id          String   @id @default(cuid())
+  amount      Int      // centavos
+  description String?
+  date        DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@map("owner_contributions")
+}
+
+model OwnerWithdrawal {
+  id          String   @id @default(cuid())
+  amount      Int      // centavos
+  description String?
+  date        DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@map("owner_withdrawals")
+}
+
+model BusinessCashMovement {
+  id          String   @id @default(cuid())
+  type        String   // sale, credit_payment, expense, contribution, withdrawal, purchase
+  amount      Int      // centavos (positive = in, negative = out)
+  description String?
+  referenceId String?
+  date        DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@index([date])
+  @@map("business_cash_movements")
+}
+
+// ─── Goals ────────────────────────────────────────────────────────────────────
+
+model Goal {
+  id            String    @id @default(cuid())
+  title         String
+  targetAmount  Int       // centavos
+  currentAmount Int       @default(0)
+  targetDate    DateTime?
+  notes         String?
+  isCompleted   Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@map("goals")
+}
+
+// ─── Alerts ───────────────────────────────────────────────────────────────────
+
+enum AlertType {
+  low_stock
+  high_losses
+  overdue_credit
+  dead_inventory
+  goal_completed
+  price_change
+}
+
+model Alert {
+  id          String    @id @default(cuid())
+  type        AlertType
+  message     String
+  referenceId String?
+  isRead      Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+
+  @@index([isRead])
+  @@index([type, referenceId, isRead])
+  @@map("alerts")
+}
+
+// ─── Financial Snapshots ──────────────────────────────────────────────────────
+
+model FinancialSnapshot {
+  id              String   @id @default(cuid())
+  cash            Int
+  utility         Int
+  inventoryValue  Int
+  pendingCredits  Int
+  avgRoi          Int
+  date            DateTime @default(now())
+  createdAt       DateTime @default(now())
+
+  @@map("financial_snapshots")
+}

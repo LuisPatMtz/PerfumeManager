@@ -1,0 +1,15 @@
+node_modules/
+dist/
+
+# env — keep .env.example, ignore the real one
+.env
+!.env.example
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Logs
+*.log
+
+# macOS
+.DS_Store
