@@ -10,3 +10,7 @@ Thumbs.db
 # Design & planning files — not part of the deployable project
 figma/
 spec.md
+
+# Claude Code internal configuration
+CLAUDE.md
+AGENTS.md
